@@ -1,0 +1,31 @@
+{
+  "name": "megad",
+  "version": "1.0.0",
+  "description": "MegaD-328",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "leninlin",
+  "license": "MIT",
+  "dependencies": {
+    "dgram": "^1.0.1"
+  },
+  "devDependencies": {
+    "keypress": "^0.2.1"
+  },
+  "directories": {
+    "test": "test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/leninlin/node-megad.git"
+  },
+  "keywords": [
+    "megad"
+  ],
+  "bugs": {
+    "url": "https://github.com/leninlin/node-megad/issues"
+  },
+  "homepage": "https://github.com/leninlin/node-megad#readme"
+}
