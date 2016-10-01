@@ -37,7 +37,6 @@ class MegaD {
     let dgram = require('dgram');
     let client = dgram.createSocket('udp4');
 
-    console.log(ip);
     client.bind(42000, () => client.setBroadcast(true));
     client.on('error', err => console.error(ip, err));
     client.on('message', (msg, rinfo) => (msg[0] == 0xAA && result.push(rinfo.address)));
@@ -81,24 +80,18 @@ class MegaD {
   }
 
   getPortsConfig() {
-    console.log('123');
-    return new Promise(resolve => {
-        console.log('234');
-      let port = 0;
-      let getPortConfig = () => {
-        console.log('345', port);
-        this.getPortConfig(port++)
-          .then(() => getPortConfig())
-          .catch(() => resolve(this.portsConfig));
-      }
-      getPortConfig();
-    });
+    let port = 0;
+    let getPortConfig = () =>
+      this.getPortConfig(port++)
+        .then(() => getPortConfig())
+        .catch(() => this.portsConfig);
+
+    return getPortConfig();
   }
 
   getPortConfig(port) {
     return this._send({pt: port})
       .then(data => this._parseForm(data))
-      .then(data => (console.log('data', data), data))
       .then(data => (this.portsConfig[port] = data, data));
   }
 
@@ -123,7 +116,6 @@ class MegaD {
       let args = {};
       (input.match(/(\w+)=([^<>\s]+)/g) || [])
         .map(arg => arg.split('='))
-        .map(arg => (console.log(arg), arg))
         .map(arg => args[arg[0]] = arg.slice(1).join('=').replace(/^"(.*)"$/, '$1'));
 
       data[args.name] = args.value || '';
@@ -180,17 +172,15 @@ class MegaD {
       port: this.port,
       path: '/' + this.password + '/?' + data
     };
-        console.log('***', options, params);
 
     return new Promise((resolve, reject) =>
       http.get(options, (res) => {
         let data = '';
-        console.log('---', data);
         res.setEncoding('utf8');
 
         res.on('error', e => (console.error(e), reject(e)));
-        res.on('data', chunk => (data += chunk, console.log('+++', data)));
-        res.on('end', () => (console.log('!!!', res.statusCode), res.statusCode == 200 ? (console.log('resolve'), resolve(data)) : reject(data)));
+        res.on('data', chunk => (data += chunk));
+        res.on('end', () => (res.statusCode == 200 ? resolve(data) : reject(data)));
       }).on('error', e => (console.error('Got error by post request', e), reject(e)))
     );
   }
