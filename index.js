@@ -1,29 +1,31 @@
 'use strict';
 
+let http = require('http');
+
 class MegaD {
   constructor({host = '192.168.0.14', port = 80, password = 'sec'} = {}) {
     this.host = host;
     this.port = port;
     this.password = password;
 
-    this._deviceConfig = {};
-    this._portsConfig = {};
+    this.deviceConfig = {};
+    this.portsConfig = [];
   }
 
   static discover() {
     let interfaces = require('os').networkInterfaces();
-    let promises = [];
+    let promise = Promise.resolve();
+    let result = [];
 
-    interfaces.map(interface =>
-      interface.map(address => {
+    Object.keys(interfaces).map(iface =>
+      interfaces[iface].map(address => {
         if (address.family == 'IPv4' && !address.internal && address.address) {
-          promises.push(this.discoverOnAddress(address.address));
+          promise = promise.then(r => (result = result.concat(r || []), this.discoverOnAddress(address.address)));
         }
       })
     );
 
-    return Promise.all(promises)
-      .then(results => [].concat.apply([], results));
+    return promise.then(() => result);
   }
 
   static discoverOnAddress(ip) {
@@ -35,9 +37,10 @@ class MegaD {
     let dgram = require('dgram');
     let client = dgram.createSocket('udp4');
 
+    console.log(ip);
     client.bind(42000, () => client.setBroadcast(true));
-    client.on('error', console.error);
-    client.on('message', (msg, rinfo) => msg[0] == 0xAA && result.push(rinfo.address));
+    client.on('error', err => console.error(ip, err));
+    client.on('message', (msg, rinfo) => (msg[0] == 0xAA && result.push(rinfo.address)));
 
     client.send(message, 0, message.length, 52000, ip);
 
@@ -67,35 +70,40 @@ class MegaD {
         this.host = eip[0];
         this.port = parseInt(eip[1]) || 80;
         this.password = pwd;
-        this._deviceConfig = data;
+        this.deviceConfig = data;
         return data;
       });
   }
 
   setDeviceConfig(config) {
-    return this._send(Object.assign({cf: 1}, this._deviceConfig, config))
+    return this._send(Object.assign({cf: 1}, this.deviceConfig, config))
       .then(() => this.getDeviceConfig());
   }
 
   getPortsConfig() {
+    console.log('123');
     return new Promise(resolve => {
+        console.log('234');
       let port = 0;
       let getPortConfig = () => {
-        self.getPortConfig(port++)
-          .then(getPortConfig())
-          .catch(() => resolve(this._portsConfig));
+        console.log('345', port);
+        this.getPortConfig(port++)
+          .then(() => getPortConfig())
+          .catch(() => resolve(this.portsConfig));
       }
+      getPortConfig();
     });
   }
 
   getPortConfig(port) {
     return this._send({pt: port})
-      .then(data => this._parseForm(data));
-      .then(data => this._portsConfig[port] = data, data);
+      .then(data => this._parseForm(data))
+      .then(data => (console.log('data', data), data))
+      .then(data => (this.portsConfig[port] = data, data));
   }
 
   setPortConfig(port, config) {
-    return this._send(Object.assign({pn: port}, this._portsConfig[port], config))
+    return this._send(Object.assign({pn: port}, this.portsConfig[port], config))
       .then(() => this.getPortConfig(port));
   }
 
@@ -110,20 +118,24 @@ class MegaD {
   _parseForm(html) {
     let data = {};
 
-    let inputs = htnl.match(/<input[^>]+name="?[\w]+"?[^>]*>/g) || [];
+    let inputs = html.match(/<input[^>]+name="?[\w]+"?[^>]*>/g) || [];
     inputs.map(input => {
       let args = {};
       (input.match(/(\w+)=([^<>\s]+)/g) || [])
         .map(arg => arg.split('='))
-        .map(arg => args[arg[0]] = arg[1].replace(/^"(.*)"$/, '$1'));
+        .map(arg => (console.log(arg), arg))
+        .map(arg => args[arg[0]] = arg.slice(1).join('=').replace(/^"(.*)"$/, '$1'));
 
       data[args.name] = args.value || '';
       if (args.type == 'checkbox' && input.indexOf('checked') == -1) {
         data[args.name] = 0;
       }
+      if (args.type == 'hidden') {
+        delete data[args.name];
+      }
     });
 
-    let selects = htnl.match(/<select[^>]+name="?[\w]+"?[^>]*>.+?<\/select>/g) || [];
+    let selects = html.match(/<select[^>]+name="?[\w]+"?[^>]*>.+?<\/select>/g) || [];
     selects.map(select => {
       let args = {};
       (select.match(/(\w+)=([^<>\s]+)/g) || [])
@@ -135,11 +147,11 @@ class MegaD {
     });
 
     if (data.pty === undefined) {
-      if (data.indexOf('>Type In<') != -1) {
+      if (html.indexOf('>Type In<') != -1) {
         data.pty = 0;
-      } else if (data.indexOf('>Type Out<') != -1) {
+      } else if (html.indexOf('>Type Out<') != -1) {
         data.pty = 1;
-      } else if (data.match(/<br>A\d+\//)) {
+      } else if (html.match(/<br>A\d+\//)) {
         data.pty = 2;
       }
     } else {
@@ -156,28 +168,30 @@ class MegaD {
     }
 
     ['m', 'd', 'misc', 'pwm', 'pn', 'naf']
-      .map(i => data[i] !== undefined ? data[i] = parseInt(data[i], 10) : _);
+      .map(i => data[i] !== undefined ? data[i] = (parseInt(data[i], 10) || 0) : undefined);
 
     return data;
   }
 
   _send(params) {
-    let data = Object.keys(params).map(k => [k, params].join('=')).join('&');
+    let data = Object.keys(params).map(k => [k, params[k]].join('=')).join('&');
     let options = {
       host: this.host,
       port: this.port,
       path: '/' + this.password + '/?' + data
     };
+        console.log('***', options, params);
 
     return new Promise((resolve, reject) =>
       http.get(options, (res) => {
         let data = '';
+        console.log('---', data);
         res.setEncoding('utf8');
 
-        res.on('error', e => console.error(e), reject(e));
-        res.on('data', chunk => data += chunk);
-        res.on('end', () => res.statusCode == 200 ? resolve(data) : reject(data));
-      }).on('error', e => console.error('Got error by post request', e), reject(e));
+        res.on('error', e => (console.error(e), reject(e)));
+        res.on('data', chunk => (data += chunk, console.log('+++', data)));
+        res.on('end', () => (console.log('!!!', res.statusCode), res.statusCode == 200 ? (console.log('resolve'), resolve(data)) : reject(data)));
+      }).on('error', e => (console.error('Got error by post request', e), reject(e)))
     );
   }
 }
